@@ -1,0 +1,24 @@
+# Virtual Environment
+.venv/
+__pycache__/
+*.pyc
+
+# Dependencies
+node_modules/
+
+# SQLite databases
+*.db
+*.db-journal
+
+# Build outputs
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
