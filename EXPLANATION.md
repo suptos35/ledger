@@ -54,14 +54,14 @@ The Mini Transaction Ledger is architected as a decoupled, multi-container clien
 
 | File | Purpose | Key Technical Details |
 |---|---|---|
-| [`backend/db.js`](file:///mnt/sda3/projects/ledger/backend/db.js) | Database Connection & Schema Management | Initializes SQLite using `better-sqlite3`. Enables WAL mode (`PRAGMA journal_mode = WAL;`) for concurrent read/write performance and foreign keys (`PRAGMA foreign_keys = ON;`). Creates tables and indexes idempotently on startup. |
-| [`backend/server.js`](file:///mnt/sda3/projects/ledger/backend/server.js) | REST API & Core Business Logic | Contains Express routes for accounts, entries, transfers, and health checks. Houses centralized input validators, atomic transaction blocks, overdraft enforcement, and window-function balance queries. |
-| [`backend/test.js`](file:///mnt/sda3/projects/ledger/backend/test.js) | Automated Test Suite & Stress Runner | Tests all endpoints, edge cases (overdrafts, invalid types, negative amounts, floats), atomic rollback during failed transfers, and runs a 50-request parallel concurrency stress test against SQLite. |
-| [`backend/seed.js`](file:///mnt/sda3/projects/ledger/backend/seed.js) | Demo Data Seeding | Populates realistic sample accounts (Checking, Savings, Treasury) with realistic credit/debit transaction history and an inter-account transfer for demo purposes. |
-| [`frontend/src/api.js`](file:///mnt/sda3/projects/ledger/frontend/src/api.js) | API Client & Formatting Helpers | Abstract fetch wrapper with error handling, currency formatting (`formatCurrency` converting cents to `$X.XX`), and timestamp formatting. |
-| [`frontend/src/App.jsx`](file:///mnt/sda3/projects/ledger/frontend/src/App.jsx) | Main React Application Component | Manages account selection, live health monitoring, transaction entry forms, modal dialogs for new accounts and fund transfers, and live overdraft warning previews. |
-| [`frontend/src/index.css`](file:///mnt/sda3/projects/ledger/frontend/src/index.css) & [`App.css`](file:///mnt/sda3/projects/ledger/frontend/src/App.css) | Custom Design System | Vanilla CSS styling with curated dark palette, glassmorphism headers, typography (Plus Jakarta Sans & JetBrains Mono), responsive grid layouts, and micro-animations. |
-| [`docker-compose.yml`](file:///mnt/sda3/projects/ledger/docker-compose.yml) | Multi-Service Container Orchestration | Defines and networks the `backend` (Node API on port 3000) and `frontend` (Nginx static web server on port 5173). |
+| [`backend/db.js`](./backend/db.js) | Database Connection & Schema Management | Initializes SQLite using `better-sqlite3`. Enables WAL mode (`PRAGMA journal_mode = WAL;`) for concurrent read/write performance and foreign keys (`PRAGMA foreign_keys = ON;`). Creates tables and indexes idempotently on startup. |
+| [`backend/server.js`](./backend/server.js) | REST API & Core Business Logic | Contains Express routes for accounts, entries, transfers, and health checks. Houses centralized input validators, atomic transaction blocks, overdraft enforcement, and window-function balance queries. |
+| [`backend/test.js`](./backend/test.js) | Automated Test Suite & Stress Runner | Tests all endpoints, edge cases (overdrafts, invalid types, negative amounts, floats), atomic rollback during failed transfers, and runs a 50-request parallel concurrency stress test against SQLite. |
+| [`backend/seed.js`](./backend/seed.js) | Demo Data Seeding | Populates realistic sample accounts (Checking, Savings, Treasury) with realistic credit/debit transaction history and an inter-account transfer for demo purposes. |
+| [`frontend/src/api.js`](./frontend/src/api.js) | API Client & Formatting Helpers | Abstract fetch wrapper with error handling, currency formatting (`formatCurrency` converting cents to `$X.XX`), and timestamp formatting. |
+| [`frontend/src/App.jsx`](./frontend/src/App.jsx) | Main React Application Component | Manages account selection, live health monitoring, transaction entry forms, modal dialogs for new accounts and fund transfers, and live overdraft warning previews. |
+| [`frontend/src/index.css`](./frontend/src/index.css) & [`App.css`](./frontend/src/App.css) | Custom Design System | Vanilla CSS styling with curated dark palette, glassmorphism headers, typography (Plus Jakarta Sans & JetBrains Mono), responsive grid layouts, and micro-animations. |
+| [`docker-compose.yml`](./docker-compose.yml) | Multi-Service Container Orchestration | Defines and networks the `backend` (Node API on port 3000) and `frontend` (Nginx static web server on port 5173). |
 
 ---
 
@@ -106,19 +106,19 @@ Transfers adhere to double-entry bookkeeping:
 
 ## 4. Docker Setup & Containerization
 
-### Backend Containerization ([`backend/Dockerfile`](file:///mnt/sda3/projects/ledger/backend/Dockerfile))
+### Backend Containerization ([`backend/Dockerfile`](./backend/Dockerfile))
 - Uses `node:20-slim` as the base image.
 - Installs necessary native compilation packages (`python3`, `make`, `g++`) so that `better-sqlite3`'s native C++ bindings compile cleanly across Linux architectures.
 - Installs production dependencies via `npm install --omit=dev`.
 - Exposes port `3000` and configures graceful SIGTERM / SIGINT shutdown.
 
-### Frontend Multi-Stage Build ([`frontend/Dockerfile`](file:///mnt/sda3/projects/ledger/frontend/Dockerfile))
+### Frontend Multi-Stage Build ([`frontend/Dockerfile`](./frontend/Dockerfile))
 To optimize image size and performance, the frontend uses a two-stage build:
 1. **Stage 1 (Build):** Uses `node:20-slim` to install dependencies and run `npm run build`, producing an optimized static production bundle in `dist/`.
 2. **Stage 2 (Production Server):** Copies the compiled static assets into `nginx:alpine` (`/usr/share/nginx/html`).
    - The final production image excludes all Node.js runtimes, package managers, and source files, resulting in an ultra-lightweight, high-performance static server.
 
-### Multi-Container Orchestration ([`docker-compose.yml`](file:///mnt/sda3/projects/ledger/docker-compose.yml))
+### Multi-Container Orchestration ([`docker-compose.yml`](./docker-compose.yml))
 `docker-compose.yml` ties both services together:
 - `backend`: builds `./backend`, publishes port `3000:3000`.
 - `frontend`: builds `./frontend`, publishes port `5173:80` and depends on `backend`.
