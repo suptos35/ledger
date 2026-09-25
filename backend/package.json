@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test.js"
+    "test": "node test.js",
+    "seed": "node seed.js"
   },
   "keywords": [],
   "author": "",
