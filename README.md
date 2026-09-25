@@ -2,6 +2,8 @@
 
 A robust full-stack transaction ledger application that allows users to create accounts, record debit/credit entries, execute atomic transfers, and compute running balances with mathematical precision and race-condition prevention.
 
+> 📖 **Assessment Written Explanation:** See [EXPLANATION.md](file:///mnt/sda3/projects/ledger/EXPLANATION.md) for the detailed explanation of app architecture, code components, API internal workings, and Docker containerization.
+
 ---
 
 ## 1. Tech Stack & Architecture
