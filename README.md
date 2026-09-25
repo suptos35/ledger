@@ -48,6 +48,10 @@ A robust full-stack transaction ledger application that allows users to create a
 - **Decision:** Debits are validated against the current account balance before execution. Both balance verification and entry insertion occur inside an atomic database transaction.
 - **Rationale:** `better-sqlite3` executes synchronously on SQLite, avoiding asynchronous race conditions that can occur when parallel async callbacks read an outdated balance before writing.
 
+### D. Atomic Transfers Between Accounts (ACID Compliance)
+- **Decision:** Account-to-account transfers perform a debit on the source account and a credit on the destination account inside a single SQLite transaction (`db.transaction()`).
+- **Rationale:** Guarantees that funds can never be created or destroyed midway if the server restarts or an unexpected error occurs during execution. Either both accounts update together or neither does.
+
 ---
 
 ## 3. REST API Specification
@@ -65,6 +69,11 @@ A robust full-stack transaction ledger application that allows users to create a
 | `POST` | `/accounts/:id/entries` | Record debit or credit entry | `{"type": "credit", "amount": 1000, "description": "Deposit"}` | `201 Created`: `{"id": 1, "account_id": 1, "type": "credit", "amount": 1000, "balance_after": 1000}` |
 | `GET` | `/accounts/:id/entries` | List entries with running balance | — | `200 OK`: `[{"id": 1, "type": "credit", "amount": 1000, "running_balance": 1000}]` |
 
+### Transfers
+| Method | Endpoint | Description | Request Body | Response (Example) |
+|---|---|---|---|---|
+| `POST` | `/transfers` | Transfer funds between two accounts | `{"from_account_id": 1, "to_account_id": 2, "amount": 500, "description": "Rent"}` | `201 Created`: `{"message": "Transfer completed successfully.", "from_balance": 750, "to_balance": 500, ...}` |
+
 ### Error Responses
 All errors follow a consistent JSON shape:
 ```json
@@ -72,7 +81,7 @@ All errors follow a consistent JSON shape:
   "error": "Descriptive error message"
 }
 ```
-- `400 Bad Request`: Invalid type, negative/zero/non-integer amount, blank name, or insufficient balance.
+- `400 Bad Request`: Invalid type, negative/zero/non-integer amount, blank name, transfer to self, or insufficient balance.
 - `404 Not Found`: Nonexistent account.
 - `500 Internal Server Error`: Unexpected database or system error.
 
@@ -101,7 +110,7 @@ npm run dev
 ```
 
 ### Running Backend Automated Tests
-An automated test suite validates health, CRUD, input validation, overdraft rejection, window function running balances, and a 50-request parallel concurrency stress test:
+An automated test suite validates health, CRUD, input validation, overdraft rejection, window function running balances, atomic transfers, and a 50-request parallel concurrency stress test:
 ```bash
 cd backend
 npm test
@@ -113,3 +122,4 @@ docker compose up --build
 # Or with Podman
 podman-compose up --build
 ```
+Open your browser at `http://localhost:5173` to access the frontend, and `http://localhost:3000` to query the REST API directly.

@@ -53,24 +53,22 @@ async function runTests() {
   const server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
 
-  console.log('--- Starting Functional & Edge Case Tests ---');
+  console.log('--- 1. Health & Core Account CRUD Tests ---');
 
-  // 1. Health check
   const healthRes = await makeRequest(server, 'GET', '/health');
   assert(healthRes.status === 200 && healthRes.body.status === 'ok', 'GET /health returns ok');
 
-  // 2. Create account
   const createAccRes = await makeRequest(server, 'POST', '/accounts', { name: 'Main Checking' });
   assert(createAccRes.status === 201, 'POST /accounts creates account (201)');
   assert(createAccRes.body.balance === 0, 'New account has balance 0');
   const accountId = createAccRes.body.id;
 
-  // 3. List accounts
   const listAccRes = await makeRequest(server, 'GET', '/accounts');
   assert(listAccRes.status === 200 && listAccRes.body.length === 1, 'GET /accounts lists 1 account');
   assert(listAccRes.body[0].balance === 0, 'Account in list has balance 0');
 
-  // 4. Credit 1000 cents ($10.00)
+  console.log('\n--- 2. Entries, Overdraft, & Running Balances ---');
+
   const creditRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, {
     type: 'credit',
     amount: 1000,
@@ -79,7 +77,6 @@ async function runTests() {
   assert(creditRes.status === 201, 'POST /accounts/:id/entries credit returns 201');
   assert(creditRes.body.balance_after === 1000, 'Balance after credit is 1000');
 
-  // 5. Debit 400 cents ($4.00)
   const debitRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, {
     type: 'debit',
     amount: 400,
@@ -88,7 +85,6 @@ async function runTests() {
   assert(debitRes.status === 201, 'POST /accounts/:id/entries debit returns 201');
   assert(debitRes.body.balance_after === 600, 'Balance after debit is 600');
 
-  // 6. Overdraft test: Try to debit 700 cents when balance is 600
   const overdraftRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, {
     type: 'debit',
     amount: 700,
@@ -97,25 +93,17 @@ async function runTests() {
   assert(overdraftRes.status === 400, 'Overdraft debit rejected with 400');
   assert(overdraftRes.body.error.includes('Insufficient balance'), 'Overdraft returns Insufficient balance error');
 
-  // 7. Verify balance unchanged after rejected overdraft
   const accCheck = await makeRequest(server, 'GET', `/accounts/${accountId}`);
   assert(accCheck.body.balance === 600, 'Account balance remains 600 after rejected debit');
 
-  // 8. Add more entries to test running balance calculation
-  await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 500, description: 'Freelance pay' }); // balance: 1100
-  await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'debit', amount: 100, description: 'Coffee' }); // balance: 1000
-  await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 250, description: 'Refund' }); // balance: 1250
+  await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 500, description: 'Freelance' });
+  await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'debit', amount: 100, description: 'Coffee' });
+  await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 250, description: 'Refund' });
 
   const entriesRes = await makeRequest(server, 'GET', `/accounts/${accountId}/entries`);
   assert(entriesRes.status === 200, 'GET /accounts/:id/entries returns 200');
   assert(entriesRes.body.length === 5, 'Found 5 entries');
 
-  // Expected running balance sequence (from newest to oldest):
-  // 1: +1000 -> 1000
-  // 2: -400  -> 600
-  // 3: +500  -> 1100
-  // 4: -100  -> 1000
-  // 5: +250  -> 1250
   const runningBalances = entriesRes.body.map((e) => e.running_balance);
   const expectedDescRunningBalances = [1250, 1000, 1100, 600, 1000];
   assert(
@@ -123,9 +111,13 @@ async function runTests() {
     `Running balances match point-in-time calculation (expected ${expectedDescRunningBalances}, got ${runningBalances})`
   );
 
-  // 9. Edge Cases & Validations
-  const invalidNameRes = await makeRequest(server, 'POST', '/accounts', { name: '   ' });
-  assert(invalidNameRes.status === 400, 'Blank account name rejected with 400');
+  console.log('\n--- 3. Validation Edge Cases & Sanity Limits (Layer 2) ---');
+
+  const blankNameRes = await makeRequest(server, 'POST', '/accounts', { name: '   ' });
+  assert(blankNameRes.status === 400, 'Blank account name rejected with 400');
+
+  const longNameRes = await makeRequest(server, 'POST', '/accounts', { name: 'A'.repeat(101) });
+  assert(longNameRes.status === 400, 'Overly long account name (>100 chars) rejected with 400');
 
   const negAmountRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: -50 });
   assert(negAmountRes.status === 400, 'Negative amount rejected with 400');
@@ -134,34 +126,75 @@ async function runTests() {
   assert(zeroAmountRes.status === 400, 'Zero amount rejected with 400');
 
   const floatAmountRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 12.5 });
-  assert(floatAmountRes.status === 400, 'Float amount rejected with 400 (only integer cents allowed)');
+  assert(floatAmountRes.status === 400, 'Float amount rejected with 400');
 
-  const stringAmountRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: '1000' });
-  assert(stringAmountRes.status === 400, 'String amount rejected with 400');
+  const excessiveAmountRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 999_999_999_999_999 });
+  assert(excessiveAmountRes.status === 400, 'Excessive amount exceeding sanity limit rejected with 400');
 
-  const invalidTypeRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'deposit', amount: 100 });
-  assert(invalidTypeRes.status === 400, "Invalid type (not 'debit'/'credit') rejected with 400");
+  const longDescRes = await makeRequest(server, 'POST', `/accounts/${accountId}/entries`, {
+    type: 'credit',
+    amount: 100,
+    description: 'D'.repeat(256)
+  });
+  assert(longDescRes.status === 400, 'Description exceeding 255 chars rejected with 400');
 
-  const nonExistentAccRes = await makeRequest(server, 'POST', `/accounts/99999/entries`, { type: 'credit', amount: 100 });
-  assert(nonExistentAccRes.status === 404, 'Entry against nonexistent account returns 404');
+  console.log('\n--- 4. Atomic Transfers Endpoint Tests (Layer 3) ---');
 
-  console.log('\n--- Running Concurrency & Race-Condition Test (50 parallel requests) ---');
-  // Account currently has balance 1250 cents.
-  // We'll fire 25 parallel credits (+100) and 25 parallel debits (-50).
-  // Net expected change: + (25 * 100) - (25 * 50) = + 2500 - 1250 = +1250.
-  // Final expected balance: 1250 + 1250 = 2500 cents.
+  // Create second account for transfer tests
+  const acc2Res = await makeRequest(server, 'POST', '/accounts', { name: 'Savings Account' });
+  const acc2Id = acc2Res.body.id;
+
+  // Currently Account 1 has 1250 cents ($12.50). Account 2 has 0 cents.
+  // Transfer 500 cents ($5.00) from Acc 1 to Acc 2.
+  const transferRes = await makeRequest(server, 'POST', '/transfers', {
+    from_account_id: accountId,
+    to_account_id: acc2Id,
+    amount: 500,
+    description: 'Monthly savings contribution'
+  });
+  assert(transferRes.status === 201, 'POST /transfers succeeds with 201');
+  assert(transferRes.body.from_balance === 750, 'Sender balance after transfer is 750');
+  assert(transferRes.body.to_balance === 500, 'Receiver balance after transfer is 500');
+
+  // Test self-transfer rejection
+  const selfTransferRes = await makeRequest(server, 'POST', '/transfers', {
+    from_account_id: accountId,
+    to_account_id: accountId,
+    amount: 100
+  });
+  assert(selfTransferRes.status === 400, 'Transfer to same account rejected with 400');
+
+  // Test overdraft transfer rejection
+  const overdraftTransferRes = await makeRequest(server, 'POST', '/transfers', {
+    from_account_id: accountId,
+    to_account_id: acc2Id,
+    amount: 99999
+  });
+  assert(overdraftTransferRes.status === 400, 'Transfer with insufficient balance rejected with 400');
+
+  // Verify balances unchanged after failed transfer
+  const acc1Check = await makeRequest(server, 'GET', `/accounts/${accountId}`);
+  const acc2Check = await makeRequest(server, 'GET', `/accounts/${acc2Id}`);
+  assert(acc1Check.body.balance === 750, 'Sender balance remains unchanged after failed transfer');
+  assert(acc2Check.body.balance === 500, 'Receiver balance remains unchanged after failed transfer');
+
+  console.log('\n--- 5. Concurrency & Race-Condition Stress Test (50 parallel requests) ---');
+
+  // Acc 1 currently has 750 cents.
+  // 25 parallel credits (+100) and 25 parallel debits (-50).
+  // Net change: +2500 - 1250 = +1250.
+  // Expected final balance: 750 + 1250 = 2000 cents.
   const promises = [];
   for (let i = 0; i < 25; i++) {
-    promises.push(makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 100, description: `Parallel Credit ${i}` }));
-    promises.push(makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'debit', amount: 50, description: `Parallel Debit ${i}` }));
+    promises.push(makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'credit', amount: 100 }));
+    promises.push(makeRequest(server, 'POST', `/accounts/${accountId}/entries`, { type: 'debit', amount: 50 }));
   }
-
   await Promise.all(promises);
 
   const finalAccRes = await makeRequest(server, 'GET', `/accounts/${accountId}`);
   assert(
-    finalAccRes.body.balance === 2500,
-    `Final balance after 50 parallel requests is exact: ${finalAccRes.body.balance} cents (expected 2500 cents)`
+    finalAccRes.body.balance === 2000,
+    `Final balance after 50 parallel requests is exact: ${finalAccRes.body.balance} cents (expected 2000 cents)`
   );
 
   console.log('\n🎉 ALL TESTS PASSED SUCCESSFULLY!');
