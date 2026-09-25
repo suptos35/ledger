@@ -14,6 +14,13 @@ export default function App() {
   const [newAccountName, setNewAccountName] = useState('');
   const [creatingAccount, setCreatingAccount] = useState(false);
 
+  // Transfer Modal
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferToAccountId, setTransferToAccountId] = useState('');
+  const [transferDollarAmount, setTransferDollarAmount] = useState('');
+  const [transferDescription, setTransferDescription] = useState('');
+  const [transferring, setTransferring] = useState(false);
+
   // Entry Form State
   const [entryType, setEntryType] = useState('credit');
   const [dollarAmount, setDollarAmount] = useState('');
@@ -125,6 +132,23 @@ export default function App() {
     return amountInCents > activeAccount.balance;
   }, [activeAccount, entryType, amountInCents]);
 
+  // Transfer calculations
+  const transferAmountInCents = useMemo(() => {
+    const parsed = parseFloat(transferDollarAmount);
+    if (isNaN(parsed) || parsed <= 0) return 0;
+    return Math.round(parsed * 100);
+  }, [transferDollarAmount]);
+
+  const isTransferOverdraft = useMemo(() => {
+    if (!activeAccount) return false;
+    return transferAmountInCents > activeAccount.balance;
+  }, [activeAccount, transferAmountInCents]);
+
+  const availableTransferDestinations = useMemo(() => {
+    if (!activeAccount) return [];
+    return accounts.filter((a) => a.id !== activeAccount.id);
+  }, [accounts, activeAccount]);
+
   // Handlers
   const handleCreateAccount = async (e) => {
     e.preventDefault();
@@ -188,6 +212,55 @@ export default function App() {
     }
   };
 
+  const handleTransfer = async (e) => {
+    e.preventDefault();
+    if (!activeAccount) return;
+    const destId = parseInt(transferToAccountId, 10);
+    if (!destId) {
+      addToast('error', 'Please select a destination account.');
+      return;
+    }
+    if (transferAmountInCents <= 0) {
+      addToast('error', 'Please enter a valid transfer amount.');
+      return;
+    }
+    if (isTransferOverdraft) {
+      addToast('error', 'Transfer amount exceeds available balance.');
+      return;
+    }
+
+    setTransferring(true);
+    try {
+      const res = await api.transferFunds({
+        fromAccountId: activeAccount.id,
+        toAccountId: destId,
+        amount: transferAmountInCents,
+        description: transferDescription.trim() || undefined,
+      });
+
+      // Update balances of both sender and recipient in state
+      setAccounts((prev) =>
+        prev.map((acc) => {
+          if (acc.id === activeAccount.id) return { ...acc, balance: res.from_balance };
+          if (acc.id === destId) return { ...acc, balance: res.to_balance };
+          return acc;
+        })
+      );
+
+      // Reload current account's entries
+      await loadEntries(activeAccount.id);
+
+      setTransferDollarAmount('');
+      setTransferDescription('');
+      setShowTransferModal(false);
+      addToast('success', `Transfer of ${formatCurrency(transferAmountInCents)} completed.`);
+    } catch (err) {
+      addToast('error', err.message);
+    } finally {
+      setTransferring(false);
+    }
+  };
+
   // Filtered entries
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
@@ -219,6 +292,20 @@ export default function App() {
             <span className={`status-dot ${isApiOnline ? 'online' : 'offline'}`} />
             {isApiOnline ? 'API Connected' : 'API Offline'}
           </div>
+
+          {availableTransferDestinations.length > 0 && activeAccount && (
+            <button
+              id="btn-open-transfer-modal"
+              className="btn-secondary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              onClick={() => {
+                setTransferToAccountId(availableTransferDestinations[0]?.id || '');
+                setShowTransferModal(true);
+              }}
+            >
+              <span>⇄</span> Transfer
+            </button>
+          )}
 
           <button
             id="btn-create-account-modal"
@@ -296,9 +383,24 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="banner-balance-box">
-                  <span className="balance-box-label">Current Running Balance</span>
-                  <span className="balance-box-val">{formatCurrency(activeAccount.balance)}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+                  <div className="banner-balance-box">
+                    <span className="balance-box-label">Current Running Balance</span>
+                    <span className="balance-box-val">{formatCurrency(activeAccount.balance)}</span>
+                  </div>
+
+                  {availableTransferDestinations.length > 0 && (
+                    <button
+                      className="btn-primary"
+                      style={{ padding: '0.6rem 1rem', fontSize: '0.85rem' }}
+                      onClick={() => {
+                        setTransferToAccountId(availableTransferDestinations[0]?.id || '');
+                        setShowTransferModal(true);
+                      }}
+                    >
+                      ⇄ Transfer Funds
+                    </button>
+                  )}
                 </div>
               </section>
 
@@ -535,6 +637,126 @@ export default function App() {
                   disabled={creatingAccount || !newAccountName.trim()}
                 >
                   {creatingAccount ? 'Creating...' : 'Create Account'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Funds Modal */}
+      {showTransferModal && activeAccount && (
+        <div className="modal-overlay" onClick={() => setShowTransferModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Transfer Funds</h3>
+              <button
+                className="modal-close"
+                onClick={() => setShowTransferModal(false)}
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleTransfer}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div className="form-group">
+                  <label className="form-label">From Account</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={`${activeAccount.name} (#${activeAccount.id}) - Available: ${formatCurrency(activeAccount.balance)}`}
+                    disabled
+                    style={{ opacity: 0.75 }}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="transfer-to-account">
+                    To Destination Account
+                  </label>
+                  <select
+                    id="transfer-to-account"
+                    className="form-input"
+                    value={transferToAccountId}
+                    onChange={(e) => setTransferToAccountId(e.target.value)}
+                    required
+                  >
+                    {availableTransferDestinations.map((dest) => (
+                      <option key={dest.id} value={dest.id}>
+                        {dest.name} (#{dest.id}) — Balance: {formatCurrency(dest.balance)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="transfer-amount">
+                    Transfer Amount (USD)
+                  </label>
+                  <div className="amount-input-wrapper">
+                    <span className="currency-prefix">$</span>
+                    <input
+                      id="transfer-amount"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      placeholder="0.00"
+                      className="form-input"
+                      value={transferDollarAmount}
+                      onChange={(e) => setTransferDollarAmount(e.target.value)}
+                      required
+                      autoFocus
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="transfer-description">
+                    Transfer Note / Description
+                  </label>
+                  <input
+                    id="transfer-description"
+                    type="text"
+                    placeholder="e.g., Monthly savings, Invoice reimbursement..."
+                    className="form-input"
+                    value={transferDescription}
+                    onChange={(e) => setTransferDescription(e.target.value)}
+                  />
+                </div>
+
+                {transferAmountInCents > 0 && (
+                  <div className={`balance-preview-banner ${isTransferOverdraft ? 'warning' : 'normal'}`}>
+                    {isTransferOverdraft ? (
+                      <span>
+                        ⚠️ <strong>Insufficient Balance:</strong> You have{' '}
+                        {formatCurrency(activeAccount.balance)} available.
+                      </span>
+                    ) : (
+                      <span>
+                        Origin balance after transfer:{' '}
+                        <strong>{formatCurrency(activeAccount.balance - transferAmountInCents)}</strong>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowTransferModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  id="btn-confirm-transfer"
+                  className="btn-primary"
+                  disabled={transferring || isTransferOverdraft || transferAmountInCents <= 0 || !transferToAccountId}
+                >
+                  {transferring ? 'Transferring...' : 'Execute Transfer'}
                 </button>
               </div>
             </form>

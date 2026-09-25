@@ -45,6 +45,21 @@ export const api = {
     return handleResponse(res);
   },
 
+  // Transfers
+  async transferFunds({ fromAccountId, toAccountId, amount, description }) {
+    const res = await fetch(`${API_BASE}/transfers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from_account_id: fromAccountId,
+        to_account_id: toAccountId,
+        amount,
+        description,
+      }),
+    });
+    return handleResponse(res);
+  },
+
   // Health
   async checkHealth() {
     try {
